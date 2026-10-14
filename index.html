@@ -38,7 +38,14 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 <script>
 const K='dayledger_v1',CATS=['Work','Study','Health','Personal','Other'],CC=['#0f766e','#e3a72f','#4b7bb5','#b4432f','#8a8f87'],MOODS=['😞','😕','😐','🙂','😄'];
 let db;try{db=JSON.parse(localStorage.getItem(K))||{users:{},s:null}}catch(e){db={users:{},s:null}}
-const save=()=>{try{localStorage.setItem(K,JSON.stringify(db))}catch(e){}};
+let cloud=null,booting=true,sync='',last={},tm;
+const lsave=()=>{try{const us={};for(const k in db.users)if(k!='cloud')us[k]=db.users[k];localStorage.setItem(K,JSON.stringify({users:us,s:db.s=='cloud'?null:db.s}))}catch(e){}};
+const save=()=>{if(db.s=='cloud'){clearTimeout(tm);sync='Saving…';stat();tm=setTimeout(push,500)}else lsave()};
+const stat=()=>{const e=document.getElementById('sy');if(e)e.textContent=sync};
+const emp=x=>!x.tasks.length&&!Object.values(x.habits).some(Boolean)&&!x.water&&!x.sleep&&!x.focus&&x.mood==3;
+function docsOf(u){const o={profile:JSON.stringify({name:u.name,bio:u.bio,goal:u.goal,cap:u.cap,habits:u.habits})};for(const d in u.days)if(!emp(u.days[d]))o['day_'+d]=JSON.stringify(u.days[d]);u.blogs.forEach(b=>{if(!b.id)b.id=Date.now()+Math.random().toString(36).slice(2,6);o['blog_'+b.id]=JSON.stringify(b)});return o}
+async function push(){try{const o=docsOf(U());for(const k in o)if(last[k]!==o[k]){await cloud.col.doc(k).set({j:o[k]});last[k]=o[k]}for(const k in last)if(!(k in o)){await cloud.col.doc(k).delete();delete last[k]}sync='Saved to your account'}catch(e){sync='Save failed – will retry on next change'}stat()}
+async function initCloud(){try{if(window.claude){const d=await claude.use('db'),us=await claude.use('user');if(d&&us){const id=await us.id();if(id){const me=await us.me(),col=d.collection('data/users/'+id),snap=await col.get();const u={name:me.name||'Me',bio:'',goal:'',cap:8,habits:['Exercise','Read 20 min','Meditate','Plan tomorrow'],days:{},blogs:[]};snap.docs.forEach(s=>{const j=(s.data()||{}).j;if(!j)return;last[s.id]=j;const v=JSON.parse(j);if(s.id=='profile')Object.assign(u,v);else if(s.id.startsWith('day_'))u.days[s.id.slice(4)]=v;else if(s.id.startsWith('blog_'))u.blogs.push(v)});u.blogs.sort((a,b)=>b.d.localeCompare(a.d));cloud={col};db.users.cloud=u;db.s='cloud'}}}}catch(e){}booting=false;render()}
 const $=id=>document.getElementById(id),U=()=>db.users[db.s];
 const ds=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
 let cur=ds(new Date()),edit=null,charts=[],msg='';
@@ -53,7 +60,7 @@ function render(){
  charts.forEach(c=>c.destroy());charts=[];let r=route();
  if(needAuth.includes(r)&&!U()){r='auth'}
  const links=U()?[['home','Home'],['profile','Profile'],['tracker','Tracker'],['insights','Insights'],['blog','Blog']]:[['auth','Log in / Sign up']];
- $('nav').innerHTML=`<b onclick="go('start')">DayLedger</b>`+links.map(l=>`<a href="#/${l[0]}" class="${l[0]==r?'on':''}">${l[1]}</a>`).join('')+(U()?`<a onclick="logout()">Log out</a>`:'');
+ $('nav').innerHTML=`<b onclick="go('start')">DayLedger</b>`+links.map(l=>`<a href="#/${l[0]}" class="${l[0]==r?'on':''}">${l[1]}</a>`).join('')+(db.s=='cloud'?`<span id="sy" class="mut" style="font-size:13px">${sync||'Synced to your account'}</span>`:U()?`<a onclick="logout()">Log out</a>`:'');
  $('app').innerHTML=({start:vStart,auth:vAuth,home:vHome,profile:vProfile,tracker:vTracker,insights:vInsights,blog:vBlog}[r]||vStart)();
  if(r=='insights')drawCharts();window.scrollTo(0,0)}
 addEventListener('hashchange',render);
@@ -67,7 +74,7 @@ function vStart(){return `<section class="hero"><h1>Plan the day.<br>Write the d
 /* 4 auth */
 let mode='login';
 function vAuth(){const s=mode=='signup';return `<div class="card" style="max-width:420px;margin:30px auto"><h2>${s?'Create your account':'Welcome back'}</h2>
-<p class="mut">Your data is saved in this browser on this device.</p>
+<p class="mut">${booting?'Checking for your claude.ai account…':'Cross-device sync needs a claude.ai sign-in, which was not found here. Accounts created below are saved on this device only.'}</p>
 ${s?'<label>Full name</label><input id="an" autocomplete="name">':''}<label>Email</label><input id="ae" type="email" autocomplete="email"><label>Password</label><input id="ap" type="password" autocomplete="${s?'new-password':'current-password'}">
 <p style="color:var(--bad);min-height:22px">${msg}</p><button class="btn p" onclick="doAuth()">${s?'Sign up':'Log in'}</button>
 <button class="btn" onclick="mode='${s?'login':'signup'}';msg='';render()">${s?'I have an account':'Create account'}</button></div>`}
@@ -155,8 +162,8 @@ function vBlog(){const u=U(),b=edit!==null&&u.blogs[edit]||{d:ds(new Date()),t:'
 <div class="card"><h3>My blog table</h3>${u.blogs.length?`<div style="overflow-x:auto"><table><tr><th>Date</th><th>Title</th><th>Words</th><th>Of 3000</th><th></th></tr>${u.blogs.map((x,i)=>{const w=wc(x.a+' '+x.n);return `<tr class="r" onclick="edit=${i};render();scrollTo(0,0)"><td>${x.d}</td><td>${esc(x.t)||'Untitled'}</td><td>${w}</td><td>${Math.round(w/30)}%</td><td><button class="btn d" onclick="event.stopPropagation();db2(${i})">Delete</button></td></tr>`}).join('')}</table></div>`:'<p class="mut">No entries yet. Write your first one above.</p>'}</div>`}
 function bc(){const w=wc($('ba').value+' '+$('bn').value);$('bw').textContent=w;$('bm').style.width=Math.min(100,w/30)+'%';$('bh').textContent=w<2700?`– ${2700-w} more for the target range`:w<=3300?'– in the target range (2700–3300)':'– over target, consider trimming'}
 function saveBlog(){const u=U(),o={d:$('bd').value,t:$('bt').value.trim(),a:$('ba').value,n:$('bn').value};if(!wc(o.a+' '+o.n))return alert('Write something before saving.');
- if(edit!==null)u.blogs[edit]=o;else u.blogs.unshift(o);edit=null;save();render()}
+ if(edit!==null){o.id=u.blogs[edit].id;u.blogs[edit]=o}else u.blogs.unshift(o);edit=null;save();render()}
 function db2(i){if(confirm('Delete this entry?')){U().blogs.splice(i,1);save();render()}}
-render();if(route()=='blog')bc();
+render();if(route()=='blog')bc();initCloud();
 new MutationObserver(()=>{if(route()=='blog'&&$('bw'))bc()}).observe($('app'),{childList:true});
 </script></body></html>
