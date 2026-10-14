@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DayLedger – Daily Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f2f4ee;--card:#fff;--ink:#1b2a29;--mut:#5d6b69;--line:#d9dfd6;--acc:#0f766e;--acc2:#e3a72f;--bad:#b4432f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121a19;--card:#1a2524;--ink:#e8efec;--mut:#9aaba7;--line:#2c3a38;--acc:#3cc2b3;--acc2:#f0bb4a;--bad:#e07a66}}
+:root[data-theme="dark"]{--bg:#121a19;--card:#1a2524;--ink:#e8efec;--mut:#9aaba7;--line:#2c3a38;--acc:#3cc2b3;--acc2:#f0bb4a;--bad:#e07a66}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 'DM Sans',system-ui,sans-serif}
+h1,h2,h3{font-family:'Bricolage Grotesque',Georgia,sans-serif;line-height:1.1;margin:0 0 .5em;letter-spacing:-.02em}
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+nav b{font-family:'Bricolage Grotesque',sans-serif;font-size:20px;margin-right:auto;cursor:pointer}
+nav a,.btn{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 13px;border-radius:8px;font:500 14px 'DM Sans',sans-serif;text-decoration:none}
+nav a.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.p{background:var(--acc);color:#fff;border-color:var(--acc)}.btn.d{color:var(--bad)}
+main{max-width:1000px;margin:0 auto;padding:22px 16px 60px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+input,select,textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{resize:vertical}label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.row>*{flex:1;min-width:110px}.row>.btn{flex:0 0 auto}
+.hero{padding:9vh 0 6vh}.hero h1{font-size:clamp(44px,9vw,92px);font-weight:800}.hero p{max-width:540px;color:var(--mut);font-size:19px}
+.bars{display:flex;gap:8px;align-items:end;height:90px;margin:28px 0}.bars i{flex:1;background:var(--acc);border-radius:5px 5px 0 0}.bars i:nth-child(3n){background:var(--acc2)}
+.stat{font:800 34px 'Bricolage Grotesque',sans-serif}.mut{color:var(--mut);font-size:14px}
+.meter{height:12px;background:var(--line);border-radius:6px;overflow:hidden}.meter div{height:100%;background:var(--acc);transition:width .3s}
+.task{display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}.task input{width:auto}.task.done span{text-decoration:line-through;color:var(--mut)}.task span{flex:1}
+.tag{font-size:12px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+.mood button{font-size:24px;background:none;border:2px solid transparent;border-radius:10px;cursor:pointer;padding:2px 6px}.mood button.on{border-color:var(--acc)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);font-size:14px}th{color:var(--mut);font-weight:500}tr.r{cursor:pointer}tr.r:hover{background:var(--bg)}
+.ch{position:relative;height:260px}.pill{display:inline-block;margin:3px 4px 3px 0}
+.pg{display:block;text-decoration:none;color:inherit;cursor:pointer}.pg:hover{border-color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+</style></head><body>
+<nav id="nav"></nav><main id="app"></main>
+<script>
+const K='dayledger_v1',CATS=['Work','Study','Health','Personal','Other'],CC=['#0f766e','#e3a72f','#4b7bb5','#b4432f','#8a8f87'],MOODS=['😞','😕','😐','🙂','😄'];
+let db;try{db=JSON.parse(localStorage.getItem(K))||{users:{},s:null}}catch(e){db={users:{},s:null}}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(db))}catch(e){}};
+const $=id=>document.getElementById(id),U=()=>db.users[db.s];
+const ds=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+let cur=ds(new Date()),edit=null,charts=[],msg='';
+const hash=s=>{let h=5381;for(const c of s)h=(h*33)^c.charCodeAt(0);return String(h>>>0)};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const day=d=>{const u=U();return u.days[d]||(u.days[d]={tasks:[],habits:{},water:0,sleep:0,mood:3,focus:0})};
+const wc=t=>(t.trim().match(/\S+/g)||[]).length;
+const route=()=>(location.hash.slice(2)||'start');
+function go(r){location.hash='#/'+r}
+const needAuth=['home','profile','tracker','insights','blog'];
+function render(){
+ charts.forEach(c=>c.destroy());charts=[];let r=route();
+ if(needAuth.includes(r)&&!U()){r='auth'}
+ const links=U()?[['home','Home'],['profile','Profile'],['tracker','Tracker'],['insights','Insights'],['blog','Blog']]:[['auth','Log in / Sign up']];
+ $('nav').innerHTML=`<b onclick="go('start')">DayLedger</b>`+links.map(l=>`<a href="#/${l[0]}" class="${l[0]==r?'on':''}">${l[1]}</a>`).join('')+(U()?`<a onclick="logout()">Log out</a>`:'');
+ $('app').innerHTML=({start:vStart,auth:vAuth,home:vHome,profile:vProfile,tracker:vTracker,insights:vInsights,blog:vBlog}[r]||vStart)();
+ if(r=='insights')drawCharts();window.scrollTo(0,0)}
+addEventListener('hashchange',render);
+
+/* 1 opening */
+function vStart(){return `<section class="hero"><h1>Plan the day.<br>Write the day.<br>See the growth.</h1>
+<p>DayLedger is a daily tracker for tasks, habits, focus time and a long-form journal, with charts that show whether you're really improving.</p>
+<div class="bars">${[30,55,40,70,60,85,95].map(h=>`<i style="height:${h}%"></i>`).join('')}</div>
+<button class="btn p" onclick="go(U()?'home':'auth')">${U()?'Open my dashboard':'Get started'}</button></section>`}
+
+/* 4 auth */
+let mode='login';
+function vAuth(){const s=mode=='signup';return `<div class="card" style="max-width:420px;margin:30px auto"><h2>${s?'Create your account':'Welcome back'}</h2>
+<p class="mut">Your data is saved in this browser on this device.</p>
+${s?'<label>Full name</label><input id="an" autocomplete="name">':''}<label>Email</label><input id="ae" type="email" autocomplete="email"><label>Password</label><input id="ap" type="password" autocomplete="${s?'new-password':'current-password'}">
+<p style="color:var(--bad);min-height:22px">${msg}</p><button class="btn p" onclick="doAuth()">${s?'Sign up':'Log in'}</button>
+<button class="btn" onclick="mode='${s?'login':'signup'}';msg='';render()">${s?'I have an account':'Create account'}</button></div>`}
+function doAuth(){const e=$('ae').value.trim().toLowerCase(),p=$('ap').value;msg='';
+ if(!e||!p){msg='Enter your email and password.'}
+ else if(mode=='signup'){const n=$('an').value.trim();if(!n)msg='Enter your name.';else if(p.length<6)msg='Password needs at least 6 characters.';else if(db.users[e])msg='That email already has an account.';
+  else{db.users[e]={name:n,pw:hash(p),bio:'',goal:'',cap:8,habits:['Exercise','Read 20 min','Meditate','Plan tomorrow'],days:{},blogs:[]};db.s=e;save();return go('home')}}
+ else{const u=db.users[e];if(!u||u.pw!=hash(p))msg='Email or password is incorrect.';else{db.s=e;save();return go('home')}}
+ render()}
+function logout(){db.s=null;save();go('start')}
+
+/* stats */
+function range(n){const o=[];for(let i=n-1;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);o.push(ds(d))}return o}
+function dstat(d){const x=U().days[d];if(!x)return{t:0,done:0,h:0,dh:0};const dn=x.tasks.filter(t=>t.done);return{t:x.tasks.length,done:dn.length,h:x.tasks.reduce((a,t)=>a+t.h,0),dh:dn.reduce((a,t)=>a+t.h,0)}}
+function streak(){let s=0;const d=new Date();for(let i=0;i<400;i++){const k=ds(d),x=dstat(k);if(x.done>0)s++;else if(i>0)break;d.setDate(d.getDate()-1)}return s}
+function rate(days){let t=0,d=0;days.forEach(k=>{const x=dstat(k);t+=x.t;d+=x.done});return t?Math.round(d/t*100):0}
+
+/* 2 home */
+function vHome(){const u=U(),r7=range(7),prev=range(14).slice(0,7),a=rate(r7),b=rate(prev),td=dstat(ds(new Date()));
+ const words=u.blogs.reduce((s,x)=>s+wc(x.a+' '+x.n),0);
+ return `<h1>Hi, ${esc(u.name.split(' ')[0])}.</h1><div class="card"><h3>About me</h3><p>${u.bio?esc(u.bio):'<span class="mut">You haven\'t written your intro yet. Add it on your profile page.</span>'}</p>${u.goal?`<p class="mut">Current goal: <b style="color:var(--ink)">${esc(u.goal)}</b></p>`:''}<button class="btn" onclick="go('profile')">Edit profile</button></div>
+<div class="grid"><div class="card"><div class="stat">${streak()}</div><div class="mut">day streak</div></div>
+<div class="card"><div class="stat">${a}%</div><div class="mut">tasks done this week (${a>=b?'+':''}${a-b} pts vs last week)</div></div>
+<div class="card"><div class="stat">${td.done}/${td.t}</div><div class="mut">tasks done today</div></div>
+<div class="card"><div class="stat">${words}</div><div class="mut">words written in blog</div></div></div>
+<button class="btn p" onclick="go('tracker')">Open today's tracker</button>`}
+
+/* 3 profile */
+function vProfile(){const u=U();return `<h1>Profile</h1><div class="card"><h3>Your details</h3>
+<label>Name</label><input id="pn" value="${esc(u.name)}"><label>About me</label><textarea id="pb" rows="3">${esc(u.bio)}</textarea>
+<div class="row"><div><label>Main goal</label><input id="pg" value="${esc(u.goal)}"></div><div><label>Daily capacity (hours)</label><input id="pc" type="number" min="1" max="16" step=".5" value="${u.cap}"></div></div>
+<label>Daily habits (comma separated)</label><input id="ph" value="${esc(u.habits.join(', '))}"><br><button class="btn p" onclick="saveProfile()">Save profile</button> <span id="ps" class="mut"></span></div>
+<h3>My daily activity pages</h3><div class="grid">
+<a class="card pg" onclick="go('tracker')"><h3>Daily tracker</h3><p class="mut">Tasks with hours, habits, water, sleep, mood and focus time.</p></a>
+<a class="card pg" onclick="go('insights')"><h3>Growth insights</h3><p class="mut">Line, bar, pie and doughnut charts of your last 14 days.</p></a>
+<a class="card pg" onclick="go('blog')"><h3>Daily blog</h3><p class="mut">Write your approach and tomorrow's plan, around 3000 words.</p></a></div>`}
+function saveProfile(){const u=U();u.name=$('pn').value.trim()||u.name;u.bio=$('pb').value;u.goal=$('pg').value;u.cap=+$('pc').value||8;u.habits=$('ph').value.split(',').map(s=>s.trim()).filter(Boolean);save();$('ps').textContent='Saved.'}
+
+/* tracker */
+function vTracker(){const u=U(),x=day(cur),s=dstat(cur),pct=Math.min(100,Math.round(s.h/u.cap*100)),over=s.h>u.cap;
+ return `<h1>Daily tracker</h1><div class="row" style="margin-bottom:14px"><div><label>Date</label><input type="date" value="${cur}" onchange="cur=this.value||cur;render()"></div></div>
+<div class="card"><h3>Workload</h3><div class="meter"><div style="width:${pct}%;${over?'background:var(--bad)':''}"></div></div>
+<p class="mut">${s.h}h planned of ${u.cap}h capacity${over?' – you are over capacity, move something to another day.':'.'} ${s.dh}h completed.</p></div>
+<div class="card"><h3>Tasks</h3><div class="row"><div style="flex:3"><label>Task</label><input id="tt" placeholder="What needs doing?" onkeydown="if(event.key=='Enter')addTask()"></div>
+<div><label>Category</label><select id="tc">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div><div><label>Hours</label><input id="th" type="number" min=".25" step=".25" value="1"></div>
+<div><label>Priority</label><select id="tp"><option>High</option><option selected>Medium</option><option>Low</option></select></div><button class="btn p" onclick="addTask()">Add task</button></div>
+${x.tasks.length?x.tasks.map((t,i)=>`<div class="task ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} onchange="tg(${i})"><span>${esc(t.t)}</span><span class="tag" style="flex:0">${t.c}</span><span class="tag" style="flex:0">${t.p}</span><span class="mut" style="flex:0">${t.h}h</span><button class="btn d" onclick="dt(${i})">Delete</button></div>`).join(''):'<p class="mut">No tasks for this day. Add your first one above.</p>'}</div>
+<div class="grid"><div class="card"><h3>Habits</h3>${u.habits.map(h=>`<label style="display:flex;gap:8px;align-items:center;color:var(--ink);font-size:16px;margin:6px 0"><input type="checkbox" style="width:auto" ${x.habits[h]?'checked':''} onchange="hb(this,'${esc(h).replace(/'/g,"\\'")}')">${esc(h)}</label>`).join('')}</div>
+<div class="card"><h3>Water</h3><div class="stat">${x.water} <span class="mut" style="font-size:16px">glasses</span></div><button class="btn" onclick="sv('water',Math.max(0,${x.water}-1))">−</button> <button class="btn p" onclick="sv('water',${x.water}+1)">+1 glass</button></div>
+<div class="card"><h3>Sleep and focus</h3><label>Sleep last night (hours)</label><input type="number" min="0" max="16" step=".5" value="${x.sleep}" onchange="sv('sleep',+this.value,1)"><label>Deep focus time (hours)</label><input type="number" min="0" max="16" step=".5" value="${x.focus}" onchange="sv('focus',+this.value,1)"></div>
+<div class="card"><h3>Mood</h3><div class="mood">${MOODS.map((m,i)=>`<button class="${x.mood==i+1?'on':''}" onclick="sv('mood',${i+1})" aria-label="Mood ${i+1}">${m}</button>`).join('')}</div></div></div>`}
+function addTask(){const t=$('tt').value.trim();if(!t)return $('tt').focus();day(cur).tasks.push({t,c:$('tc').value,h:+$('th').value||1,p:$('tp').value,done:false});save();render()}
+const tg=i=>{const t=day(cur).tasks[i];t.done=!t.done;save();render()},dt=i=>{day(cur).tasks.splice(i,1);save();render()};
+const hb=(el,h)=>{day(cur).habits[h]=el.checked;save()};
+function sv(k,v,q){day(cur)[k]=v;save();if(!q)render()}
+
+/* insights */
+function vInsights(){const r=range(14),wk=rate(range(7)),hab=r.reduce((a,d)=>{const x=U().days[d];return a+(x?Object.values(x.habits).filter(Boolean).length:0)},0);
+ const f=r.map(d=>U().days[d]).filter(Boolean),avg=k=>f.length?(f.reduce((a,x)=>a+(+x[k]||0),0)/f.length).toFixed(1):'0';
+ return `<h1>Growth insights</h1><p class="mut">Based on your last 14 days. Log tasks, focus and mood daily to fill the charts.</p>
+<div class="grid"><div class="card"><div class="stat">${streak()}</div><div class="mut">day streak</div></div><div class="card"><div class="stat">${wk}%</div><div class="mut">completion, last 7 days</div></div><div class="card"><div class="stat">${avg('focus')}h</div><div class="mut">avg focus per logged day</div></div><div class="card"><div class="stat">${hab}</div><div class="mut">habits checked in 14 days</div></div></div>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+<div class="card"><h3>Tasks completed vs planned</h3><div class="ch"><canvas id="c1"></canvas></div></div>
+<div class="card"><h3>Hours by category (completed)</h3><div class="ch"><canvas id="c2"></canvas></div></div>
+<div class="card"><h3>Done vs pending tasks</h3><div class="ch"><canvas id="c3"></canvas></div></div>
+<div class="card"><h3>Focus, sleep and mood</h3><div class="ch"><canvas id="c4"></canvas></div></div></div>`}
+function drawCharts(){if(!window.Chart)return;const r=range(14),lb=r.map(d=>d.slice(5)),u=U(),st=getComputedStyle(document.documentElement),tx=st.getPropertyValue('--mut').trim(),gl=st.getPropertyValue('--line').trim();
+ Chart.defaults.color=tx;Chart.defaults.borderColor=gl;const O={responsive:true,maintainAspectRatio:false},M=(id,c)=>charts.push(new Chart($(id),c));
+ const S=r.map(dstat);
+ M('c1',{type:'bar',data:{labels:lb,datasets:[{label:'Planned',data:S.map(s=>s.t),backgroundColor:gl},{label:'Done',data:S.map(s=>s.done),backgroundColor:'#0f766e'}]},options:{...O,scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+ const cat=CATS.map(c=>{let h=0;r.forEach(d=>{const x=u.days[d];if(x)x.tasks.forEach(t=>{if(t.done&&t.c==c)h+=t.h})});return h});
+ M('c2',{type:'pie',data:{labels:CATS,datasets:[{data:cat,backgroundColor:CC,borderWidth:0}]},options:O});
+ const dn=S.reduce((a,s)=>a+s.done,0),tt=S.reduce((a,s)=>a+s.t,0);
+ M('c3',{type:'doughnut',data:{labels:['Done','Pending'],datasets:[{data:[dn,tt-dn],backgroundColor:['#0f766e','#e3a72f'],borderWidth:0}]},options:O});
+ const g=k=>r.map(d=>u.days[d]?+u.days[d][k]||0:null);
+ M('c4',{type:'line',data:{labels:lb,datasets:[{label:'Focus (h)',data:g('focus'),borderColor:'#0f766e',tension:.3},{label:'Sleep (h)',data:g('sleep'),borderColor:'#4b7bb5',tension:.3},{label:'Mood (1-5)',data:g('mood'),borderColor:'#e3a72f',tension:.3}]},options:{...O,spanGaps:true}})}
+
+/* 5 blog */
+function vBlog(){const u=U(),b=edit!==null&&u.blogs[edit]||{d:ds(new Date()),t:'',a:'',n:''};
+ return `<h1>Daily blog</h1><div class="card"><h3>${edit!==null?'Edit entry':'New entry'}</h3><div class="row"><div style="flex:3"><label>Title</label><input id="bt" value="${esc(b.t)}" placeholder="e.g. Finishing the report ahead of time"></div><div><label>Date</label><input id="bd" type="date" value="${b.d}"></div></div>
+<label>Activity approach – how I worked today and why</label><textarea id="ba" rows="12" oninput="bc()">${esc(b.a)}</textarea>
+<label>Next day work – what I will do tomorrow</label><textarea id="bn" rows="6" oninput="bc()">${esc(b.n)}</textarea>
+<p style="margin:12px 0 6px"><b id="bw">0</b> / 3000 words <span id="bh" class="mut"></span></p><div class="meter"><div id="bm" style="width:0"></div></div><br>
+<button class="btn p" onclick="saveBlog()">Save entry</button> ${edit!==null?'<button class="btn" onclick="edit=null;render()">Cancel</button>':''}</div>
+<div class="card"><h3>My blog table</h3>${u.blogs.length?`<div style="overflow-x:auto"><table><tr><th>Date</th><th>Title</th><th>Words</th><th>Of 3000</th><th></th></tr>${u.blogs.map((x,i)=>{const w=wc(x.a+' '+x.n);return `<tr class="r" onclick="edit=${i};render();scrollTo(0,0)"><td>${x.d}</td><td>${esc(x.t)||'Untitled'}</td><td>${w}</td><td>${Math.round(w/30)}%</td><td><button class="btn d" onclick="event.stopPropagation();db2(${i})">Delete</button></td></tr>`}).join('')}</table></div>`:'<p class="mut">No entries yet. Write your first one above.</p>'}</div>`}
+function bc(){const w=wc($('ba').value+' '+$('bn').value);$('bw').textContent=w;$('bm').style.width=Math.min(100,w/30)+'%';$('bh').textContent=w<2700?`– ${2700-w} more for the target range`:w<=3300?'– in the target range (2700–3300)':'– over target, consider trimming'}
+function saveBlog(){const u=U(),o={d:$('bd').value,t:$('bt').value.trim(),a:$('ba').value,n:$('bn').value};if(!wc(o.a+' '+o.n))return alert('Write something before saving.');
+ if(edit!==null)u.blogs[edit]=o;else u.blogs.unshift(o);edit=null;save();render()}
+function db2(i){if(confirm('Delete this entry?')){U().blogs.splice(i,1);save();render()}}
+render();if(route()=='blog')bc();
+new MutationObserver(()=>{if(route()=='blog'&&$('bw'))bc()}).observe($('app'),{childList:true});
+</script></body></html>
