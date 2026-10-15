@@ -40,7 +40,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 const K='dayledger_v1',CATS=['Work','Study','Health','Personal','Other'],CC=['#0f766e','#e3a72f','#4b7bb5','#b4432f','#8a8f87'],MOODS=['😞','😕','😐','🙂','😄'];
 let db;try{db=JSON.parse(localStorage.getItem(K))||{users:{},s:null}}catch(e){db={users:{},s:null}}
 db={users:{},s:null};
-const SUPABASE_URL='https://cqehbcrmhinfhughgvwr.supabase.co/rest/v1/',SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxZWhiY3JtaGluZmh1Z2hndndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE5MjIsImV4cCI6MjEwNzYxNzkyMn0.JbCtXrAXePBwTL6tpRpYFdXAnow5v_Y__6lxOf5hih8';
+const SUPABASE_URL='https://cqehbcrmhinfhughgvwr.supabase.co',SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxZWhiY3JtaGluZmh1Z2hndndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE5MjIsImV4cCI6MjEwNzYxNzkyMn0.JbCtXrAXePBwTL6tpRpYFdXAnow5v_Y__6lxOf5hih8';
 let sb=null,uid=null,booting=true,sync='',last={},tm;
 try{sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
 const save=()=>{if(db.s!='cloud')return;clearTimeout(tm);sync='Saving…';stat();tm=setTimeout(push,500)};
