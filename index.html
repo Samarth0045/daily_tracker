@@ -4,6 +4,7 @@
 <title>DayLedger – Daily Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#f2f4ee;--card:#fff;--ink:#1b2a29;--mut:#5d6b69;--line:#d9dfd6;--acc:#0f766e;--acc2:#e3a72f;--bad:#b4432f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121a19;--card:#1a2524;--ink:#e8efec;--mut:#9aaba7;--line:#2c3a38;--acc:#3cc2b3;--acc2:#f0bb4a;--bad:#e07a66}}
@@ -38,14 +39,17 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 <script>
 const K='dayledger_v1',CATS=['Work','Study','Health','Personal','Other'],CC=['#0f766e','#e3a72f','#4b7bb5','#b4432f','#8a8f87'],MOODS=['😞','😕','😐','🙂','😄'];
 let db;try{db=JSON.parse(localStorage.getItem(K))||{users:{},s:null}}catch(e){db={users:{},s:null}}
-let cloud=null,booting=true,sync='',last={},tm;
-const lsave=()=>{try{const us={};for(const k in db.users)if(k!='cloud')us[k]=db.users[k];localStorage.setItem(K,JSON.stringify({users:us,s:db.s=='cloud'?null:db.s}))}catch(e){}};
-const save=()=>{if(db.s=='cloud'){clearTimeout(tm);sync='Saving…';stat();tm=setTimeout(push,500)}else lsave()};
+db={users:{},s:null};
+const SUPABASE_URL='sb_secret_K23CxnCTdiScZEE0cE5q4Q_uShTIWK2',SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxZWhiY3JtaGluZmh1Z2hndndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE5MjIsImV4cCI6MjEwNzYxNzkyMn0.JbCtXrAXePBwTL6tpRpYFdXAnow5v_Y__6lxOf5hih8';
+let sb=null,uid=null,booting=true,sync='',last={},tm;
+try{sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
+const save=()=>{if(db.s!='cloud')return;clearTimeout(tm);sync='Saving…';stat();tm=setTimeout(push,500)};
 const stat=()=>{const e=document.getElementById('sy');if(e)e.textContent=sync};
 const emp=x=>!x.tasks.length&&!Object.values(x.habits).some(Boolean)&&!x.water&&!x.sleep&&!x.focus&&x.mood==3;
 function docsOf(u){const o={profile:JSON.stringify({name:u.name,bio:u.bio,goal:u.goal,cap:u.cap,habits:u.habits})};for(const d in u.days)if(!emp(u.days[d]))o['day_'+d]=JSON.stringify(u.days[d]);u.blogs.forEach(b=>{if(!b.id)b.id=Date.now()+Math.random().toString(36).slice(2,6);o['blog_'+b.id]=JSON.stringify(b)});return o}
-async function push(){try{const o=docsOf(U());for(const k in o)if(last[k]!==o[k]){await cloud.col.doc(k).set({j:o[k]});last[k]=o[k]}for(const k in last)if(!(k in o)){await cloud.col.doc(k).delete();delete last[k]}sync='Saved to your account'}catch(e){sync='Save failed – will retry on next change'}stat()}
-async function initCloud(){try{if(window.claude){const d=await claude.use('db'),us=await claude.use('user');if(d&&us){const id=await us.id();if(id){const me=await us.me(),col=d.collection('data/users/'+id),snap=await col.get();const u={name:me.name||'Me',bio:'',goal:'',cap:8,habits:['Exercise','Read 20 min','Meditate','Plan tomorrow'],days:{},blogs:[]};snap.docs.forEach(s=>{const j=(s.data()||{}).j;if(!j)return;last[s.id]=j;const v=JSON.parse(j);if(s.id=='profile')Object.assign(u,v);else if(s.id.startsWith('day_'))u.days[s.id.slice(4)]=v;else if(s.id.startsWith('blog_'))u.blogs.push(v)});u.blogs.sort((a,b)=>b.d.localeCompare(a.d));cloud={col};db.users.cloud=u;db.s='cloud'}}}}catch(e){}booting=false;render()}
+async function push(){try{const o=docsOf(U()),up=[];for(const k in o)if(last[k]!==o[k])up.push({user_id:uid,id:k,j:o[k]});if(up.length){const{error}=await sb.from('user_docs').upsert(up);if(error)throw error;up.forEach(r=>last[r.id]=r.j)}const del=Object.keys(last).filter(k=>!(k in o));if(del.length){const{error}=await sb.from('user_docs').delete().eq('user_id',uid).in('id',del);if(error)throw error;del.forEach(k=>delete last[k])}sync='Saved to your account'}catch(e){sync='Save failed – tap to retry'}stat()}
+async function loadUser(user){uid=user.id;const{data,error}=await sb.from('user_docs').select('id,j').eq('user_id',uid);if(error)throw error;const u={name:(user.user_metadata&&user.user_metadata.name)||user.email,bio:'',goal:'',cap:8,habits:['Exercise','Read 20 min','Meditate','Plan tomorrow'],days:{},blogs:[]};last={};(data||[]).forEach(r=>{last[r.id]=r.j;const v=JSON.parse(r.j);if(r.id=='profile')Object.assign(u,v);else if(r.id.startsWith('day_'))u.days[r.id.slice(4)]=v;else if(r.id.startsWith('blog_'))u.blogs.push(v)});u.blogs.sort((a,b)=>b.d.localeCompare(a.d));db={users:{cloud:u},s:'cloud'}}
+async function initCloud(){try{if(sb){const{data}=await sb.auth.getSession();if(data.session)await loadUser(data.session.user)}}catch(e){}booting=false;render()}
 const $=id=>document.getElementById(id),U=()=>db.users[db.s];
 const ds=d=>new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
 let cur=ds(new Date()),edit=null,charts=[],msg='';
@@ -60,7 +64,7 @@ function render(){
  charts.forEach(c=>c.destroy());charts=[];let r=route();
  if(needAuth.includes(r)&&!U()){r='auth'}
  const links=U()?[['home','Home'],['profile','Profile'],['tracker','Tracker'],['insights','Insights'],['blog','Blog']]:[['auth','Log in / Sign up']];
- $('nav').innerHTML=`<b onclick="go('start')">DayLedger</b>`+links.map(l=>`<a href="#/${l[0]}" class="${l[0]==r?'on':''}">${l[1]}</a>`).join('')+(db.s=='cloud'?`<span id="sy" class="mut" style="font-size:13px">${sync||'Synced to your account'}</span>`:U()?`<a onclick="logout()">Log out</a>`:'');
+ $('nav').innerHTML=`<b onclick="go('start')">DayLedger</b>`+links.map(l=>`<a href="#/${l[0]}" class="${l[0]==r?'on':''}">${l[1]}</a>`).join('')+(U()?`<span id="sy" class="mut" style="font-size:13px;cursor:pointer" onclick="if(sync.startsWith('Save failed'))push()">${sync||'Synced to your account'}</span><a onclick="logout()">Log out</a>`:'');
  $('app').innerHTML=({start:vStart,auth:vAuth,home:vHome,profile:vProfile,tracker:vTracker,insights:vInsights,blog:vBlog}[r]||vStart)();
  if(r=='insights')drawCharts();window.scrollTo(0,0)}
 addEventListener('hashchange',render);
@@ -73,18 +77,15 @@ function vStart(){return `<section class="hero"><h1>Plan the day.<br>Write the d
 
 /* 4 auth */
 let mode='login';
-function vAuth(){const s=mode=='signup';return `<div class="card" style="max-width:420px;margin:30px auto"><h2>${s?'Create your account':'Welcome back'}</h2>
-<p class="mut">${booting?'Checking for your claude.ai account…':'Cross-device sync needs a claude.ai sign-in, which was not found here. Accounts created below are saved on this device only.'}</p>
-${s?'<label>Full name</label><input id="an" autocomplete="name">':''}<label>Email</label><input id="ae" type="email" autocomplete="email"><label>Password</label><input id="ap" type="password" autocomplete="${s?'new-password':'current-password'}">
-<p style="color:var(--bad);min-height:22px">${msg}</p><button class="btn p" onclick="doAuth()">${s?'Sign up':'Log in'}</button>
-<button class="btn" onclick="mode='${s?'login':'signup'}';msg='';render()">${s?'I have an account':'Create account'}</button></div>`}
-function doAuth(){const e=$('ae').value.trim().toLowerCase(),p=$('ap').value;msg='';
- if(!e||!p){msg='Enter your email and password.'}
- else if(mode=='signup'){const n=$('an').value.trim();if(!n)msg='Enter your name.';else if(p.length<6)msg='Password needs at least 6 characters.';else if(db.users[e])msg='That email already has an account.';
-  else{db.users[e]={name:n,pw:hash(p),bio:'',goal:'',cap:8,habits:['Exercise','Read 20 min','Meditate','Plan tomorrow'],days:{},blogs:[]};db.s=e;save();return go('home')}}
- else{const u=db.users[e];if(!u||u.pw!=hash(p))msg='Email or password is incorrect.';else{db.s=e;save();return go('home')}}
- render()}
-function logout(){db.s=null;save();go('start')}
+function vAuth(){const s=mode=='signup';if(booting)return '<div class="card"><h2>Loading…</h2></div>';return `<div class="card" style="max-width:420px;margin:30px auto"><h2>${s?'Create your account':'Welcome back'}</h2><p class="mut">Your data is saved in an online database, so you can log in from any device.</p>${s?'<label>Full name</label><input id="an" autocomplete="name">':''}<label>Email</label><input id="ae" type="email" autocomplete="email"><label>Password</label><input id="ap" type="password" autocomplete="${s?'new-password':'current-password'}" onkeydown="if(event.key=='Enter')doAuth()"><p style="color:var(--bad);min-height:22px">${msg}</p><button class="btn p" onclick="doAuth()">${s?'Sign up':'Log in'}</button> <button class="btn" onclick="mode='${s?'login':'signup'}';msg='';render()">${s?'I have an account':'Create account'}</button></div>`}
+async function doAuth(){const e=$('ae').value.trim().toLowerCase(),p=$('ap').value;msg='';
+ if(!sb){msg='Database is not configured yet. See README.md.';return render()}
+ if(!e||!p){msg='Enter your email and password.';return render()}
+ try{let r;if(mode=='signup'){const n=$('an').value.trim();if(!n){msg='Enter your name.';return render()}if(p.length<6){msg='Password needs at least 6 characters.';return render()}
+ r=await sb.auth.signUp({email:e,password:p,options:{data:{name:n}}});if(r.error)throw r.error;if(!r.data.session){msg='Check your email to confirm your account, then log in.';mode='login';return render()}}
+ else{r=await sb.auth.signInWithPassword({email:e,password:p});if(r.error)throw r.error}
+ await loadUser(r.data.session.user);go('home');render()}catch(x){msg=x.message||'Something went wrong.';render()}}
+async function logout(){try{await sb.auth.signOut()}catch(e){}db={users:{},s:null};last={};go('start');render()}
 
 /* stats */
 function range(n){const o=[];for(let i=n-1;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);o.push(ds(d))}return o}
@@ -107,7 +108,7 @@ function vProfile(){const u=U();return `<h1>Profile</h1><div class="card"><h3>Yo
 <label>Name</label><input id="pn" value="${esc(u.name)}"><label>About me</label><textarea id="pb" rows="3">${esc(u.bio)}</textarea>
 <div class="row"><div><label>Main goal</label><input id="pg" value="${esc(u.goal)}"></div><div><label>Daily capacity (hours)</label><input id="pc" type="number" min="1" max="16" step=".5" value="${u.cap}"></div></div>
 <label>Daily habits (comma separated)</label><input id="ph" value="${esc(u.habits.join(', '))}"><br><button class="btn p" onclick="saveProfile()">Save profile</button> <span id="ps" class="mut"></span></div>
-<h3>My daily activity pages</h3><div class="grid">
+<div class="card"><h3>Backup</h3><p class="mut">Download a copy of all your data, or restore from an earlier copy.</p><button class="btn" onclick="exportData()">Download backup</button> <label class="btn" style="display:inline-block;margin:0">Restore backup<input type="file" accept=".json" style="display:none" onchange="importData(this.files[0])"></label></div><h3>My daily activity pages</h3><div class="grid">
 <a class="card pg" onclick="go('tracker')"><h3>Daily tracker</h3><p class="mut">Tasks with hours, habits, water, sleep, mood and focus time.</p></a>
 <a class="card pg" onclick="go('insights')"><h3>Growth insights</h3><p class="mut">Line, bar, pie and doughnut charts of your last 14 days.</p></a>
 <a class="card pg" onclick="go('blog')"><h3>Daily blog</h3><p class="mut">Write your approach and tomorrow's plan, around 3000 words.</p></a></div>`}
@@ -164,6 +165,10 @@ function bc(){const w=wc($('ba').value+' '+$('bn').value);$('bw').textContent=w;
 function saveBlog(){const u=U(),o={d:$('bd').value,t:$('bt').value.trim(),a:$('ba').value,n:$('bn').value};if(!wc(o.a+' '+o.n))return alert('Write something before saving.');
  if(edit!==null){o.id=u.blogs[edit].id;u.blogs[edit]=o}else u.blogs.unshift(o);edit=null;save();render()}
 function db2(i){if(confirm('Delete this entry?')){U().blogs.splice(i,1);save();render()}}
+function retry(){booting=true;render();initCloud()}
+function exportData(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(U())],{type:'application/json'}));a.download='dayledger-backup-'+ds(new Date())+'.json';a.click()}
+function importData(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const v=JSON.parse(r.result),u=U();if(!v||typeof v!='object'||!v.days||!Array.isArray(v.blogs))throw 0;if(!confirm('Merge this backup into your account?'))return;u.name=v.name||u.name;u.bio=v.bio||u.bio;u.goal=v.goal||u.goal;u.cap=v.cap||u.cap;u.habits=v.habits||u.habits;Object.assign(u.days,v.days);const ids=new Set(u.blogs.map(b=>b.id));v.blogs.forEach(b=>{if(!b.id||!ids.has(b.id))u.blogs.push(b)});save();render()}catch(e){alert('That file is not a valid backup.')}};r.readAsText(f)}
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&db.s=='cloud'&&sync=='Saving…'){clearTimeout(tm);push()}});
 render();if(route()=='blog')bc();initCloud();
 new MutationObserver(()=>{if(route()=='blog'&&$('bw'))bc()}).observe($('app'),{childList:true});
 </script></body></html>
